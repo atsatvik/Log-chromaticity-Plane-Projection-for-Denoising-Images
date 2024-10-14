@@ -88,3 +88,30 @@ class Image:
             if key == ord("q"):
                 break
         return points
+
+    def applyMask(self, img, mask, set_val=-1.0):
+        if len(mask.shape) == 3 and mask.shape[2] > 1:
+            raise Exception(
+                f"Expected mask image of shape (H,W) or (H,W,1) got {mask.shape}"
+            )
+        img = img.astype(float)
+        mask = mask.astype(bool)
+        img[~mask] = set_val
+        return img
+
+    def dilate(self, grayscale, kernel=(3, 3), iterations=5):
+        if len(grayscale.shape) == 3 and grayscale.shape[2] > 1:
+            raise Exception(
+                f"Need image of shape (H,W) or (H,W,1) for dilation got {grayscale.shape}"
+            )
+        return cv2.dilate(grayscale, kernel, None, iterations=iterations)
+
+    def ignoreNaNs(self, img_pts):
+        non_nan_mask = ~np.isnan(img_pts).any(axis=1)
+        img_pts = img_pts[non_nan_mask]
+        return img_pts
+
+    def blur(self, img, kernel=(3, 3), iterations=1):
+        for _ in range(iterations):
+            img = cv2.blur(img, kernel, None)
+        return img

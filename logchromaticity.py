@@ -18,7 +18,7 @@ class processLogImage:
         upper_lim = np.max(image)
         lower_lim = np.min(image)
 
-        r, g, b = image[:, :, 0], image[:, :, 1], image[:, :, 2]
+        r, g, b = image[:, 0], image[:, 1], image[:, 2]
         r = r.flatten()
         g = g.flatten()
         b = b.flatten()
@@ -27,9 +27,9 @@ class processLogImage:
             color_image = image
 
         r_color, g_color, b_color = (
-            color_image[:, :, 0],
-            color_image[:, :, 1],
-            color_image[:, :, 2],
+            color_image[:, 0],
+            color_image[:, 1],
+            color_image[:, 2],
         )
 
         r_color = r_color.flatten()
@@ -369,12 +369,23 @@ class processLogImage:
         best_inliers_count = 0
         best_inliers_mask = None
 
+        intensity_points = np.mean(points, axis=1)
+        intensity_points_argsorted = np.argsort(intensity_points)
+
+        dim_pts = intensity_points_argsorted[0 : int(len(intensity_points) * 0.05)]
+        bright_pts = intensity_points_argsorted[
+            int(len(intensity_points) * 0.95) : len(intensity_points)
+        ]
+
         num_points = points.shape[0]
 
         for _ in tqdm(range(max_iterations), desc="Estimating best line using RANSAC"):
             # Randomly select 2 points to define the line
-            sample_indices = np.random.choice(num_points, 2, replace=False)
-            p1, p2 = points[sample_indices]
+            # sample_indices = np.random.choice(num_points, 2, replace=False)
+            # p1, p2 = points[sample_indices]
+
+            p1 = points[np.random.choice(dim_pts)]
+            p2 = points[np.random.choice(bright_pts)]
 
             # Compute the direction vector of the line
             direction_vector = p2 - p1
@@ -399,4 +410,4 @@ class processLogImage:
                 best_inliers_count = inliers_count
                 best_inliers_mask = inliers_mask
 
-        return [p0, p0 + 20 * direction_vector], best_inliers_mask
+        return [p0, p0 + 10 * direction_vector], best_inliers_mask

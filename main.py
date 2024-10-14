@@ -9,6 +9,7 @@ from utils import Image
 
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 PATH_RGB = f"/home/satviktyagi/Desktop/desk/project/datasets/des3_dataset/ISTD_des3/test/test_A/"
+PATH_MASK = f"/home/satviktyagi/Desktop/desk/project/datasets/des3_dataset/ISTD_des3/test/test_B/"
 
 
 def parse_args():
@@ -43,6 +44,12 @@ def parse_args():
         type=str,
         help="flag to set save histogram as true or false",
     )
+    parser.add_argument(
+        "--usemask",
+        default=None,
+        type=str,
+        help="flag to use on shadow regions (and slight lit region) for pcl processing using masks",
+    )
     args = parser.parse_args()
     return args
 
@@ -73,34 +80,58 @@ def main():
             rgb_img = rgb_img[min(y1, y2) : max(y1, y2), min(x1, x2) : max(x1, x2)]
 
         logrgbimgs = [(log_img, rgb_img, img_name)]
+        if args.usemask:
+            masks = []
+            masks.append(Image_.readImage(os.path.join(PATH_MASK, f"{img_name}.png")))
 
     elif args.imgs is not None:
         imgnames = os.listdir(args.imgs)
         logrgbimgs = []
+        masks = []
         for im in imgnames:
             imname = im.split(".")[0]
             logimgpath = os.path.join(args.imgs, im)
             rgbimgpath = os.path.join(PATH_RGB, f"{imname}.png")
+
+            if args.usemask:
+                masks.append(
+                    Image_.readImage(os.path.join(PATH_MASK, f"{img_name}.png"))
+                )
 
             log_img = Image_.readImage(logimgpath)
             rgb_img = Image_.readImage(rgbimgpath)
 
             logrgbimgs.append((log_img, rgb_img, imname))
 
-    for log_img, rgb_img, img_name in tqdm(logrgbimgs, desc="Processing images"):
+    for i, (log_img, rgb_img, img_name) in tqdm(
+        enumerate(logrgbimgs), desc="Processing images"
+    ):
+        log_img_pts = log_img.reshape(-1, 3)
+        if args.usemask:
+            mask_img = masks[i]
+            mask_img = Image_.dilate(mask_img, kernel=(3, 3), iterations=10)
+
+            log_img_masked = Image_.applyMask(log_img, mask_img, set_val=np.nan)
+            # log_img_masked = Image_.blur(log_img_masked, kernel=(3, 3), iterations=3)
+            log_img_pts = Image_.ignoreNaNs(log_img_masked.reshape(-1, 3))
+
+            rgb_img_masked = (Image_.applyMask(rgb_img, mask_img, set_val=0)).astype(
+                np.uint8
+            )
+            Image_.showImage(rgb_img_masked)
+
         #### MANUALLY SELECTING POINTS
-        # points = Image_.getPoints(rgb_img, num_points=2)
-        # lit_shadow_pts = [points[-2], points[-1]]  # lit, shadow
-        # ISD_vec = logproc.estimateISDwithNeigbors(
-        #     log_img, lit_shadow_pts, kernel=(5, 5)
-        # )
-        # lit_shadow_pts = [
-        #     log_img[points[-2][0], points[-2][1], :],
-        #     log_img[points[-1][0], points[-1][1], :],
-        # ]
+        points = Image_.getPoints(rgb_img, num_points=2)
+        lit_shadow_pts = [points[-2], points[-1]]  # lit, shadow
+        ISD_vec = logproc.estimateISDwithNeigbors(
+            log_img, lit_shadow_pts, kernel=(5, 5)
+        )
+        lit_shadow_pts = [
+            log_img[points[-2][0], points[-2][1], :],
+            log_img[points[-1][0], points[-1][1], :],
+        ]
 
         #### PLANE FITTING
-        # log_img_pts = log_img.reshape(-1, 3)
         # sufficient_inliers = log_img_pts.shape[0]
         # best_fit_plane, best_inliers_mask = logproc.fitPlane(
         #     log_img_pts, sufficient_inliers, max_iterations=1000, threshold=0.01
@@ -131,10 +162,10 @@ def main():
         # ISD_vec = shadowpt - litpt
 
         ### LINE FITTING
-        log_img_pts = log_img.reshape(-1, 3)
-        lit_shadow_pts, best_inliers_mask = logproc.fitLine(
-            log_img_pts, max_iterations=5000, threshold=1
-        )
+        # lit_shadow_pts, best_inliers_mask = logproc.fitLine(
+        #     log_img_pts, max_iterations=5000, threshold=0.01
+        # )
+
         ISD_vec = lit_shadow_pts[0] - lit_shadow_pts[1]
 
         tfmat = logproc.estimateTransformationMat(ISD_vec)
@@ -179,18 +210,18 @@ def main():
 
         if args.savehistogram:
             logproc.generate3DHistogram(
-                log_img,
+                log_img_pts,
                 color_image=rgb_img,
                 save_name=f"{args.result}/histogram/{img_name}_log.html",
                 title="LOG PCL",
                 vector=[lit_shadow_pts],
                 # plane=[best_fit_plane, best_projection_plane],
             )
-            logproc.generate3DHistogram(
-                rgb_img,
-                save_name=f"{args.result}/histogram/{img_name}_rgb.html",
-                title="RGB PCL",
-            )
+            # logproc.generate3DHistogram(
+            #     rgb_img.reshape(-1, 3),
+            #     save_name=f"{args.result}/histogram/{img_name}_rgb.html",
+            #     title="RGB PCL",
+            # )
 
 
 if __name__ == "__main__":
