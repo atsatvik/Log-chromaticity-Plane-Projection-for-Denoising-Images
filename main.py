@@ -76,8 +76,9 @@ def main():
 
         if args.crop is not None:
             x1, y1, x2, y2 = Image_.getCrop(rgb_img)
-            log_img = log_img[min(y1, y2) : max(y1, y2), min(x1, x2) : max(x1, x2)]
-            rgb_img = rgb_img[min(y1, y2) : max(y1, y2), min(x1, x2) : max(x1, x2)]
+            log_img_pts = (
+                log_img[min(y1, y2) : max(y1, y2), min(x1, x2) : max(x1, x2)]
+            ).reshape(-1, 3)
 
         logrgbimgs = [(log_img, rgb_img, img_name)]
         if args.usemask:
@@ -106,14 +107,19 @@ def main():
     for i, (log_img, rgb_img, img_name) in tqdm(
         enumerate(logrgbimgs), desc="Processing images"
     ):
-        log_img_pts = log_img.reshape(-1, 3)
+        planes = None
+        if not args.crop:
+            log_img_pts = log_img.reshape(-1, 3)
         if args.usemask:
             mask_img = masks[i]
-            mask_img = Image_.dilate(mask_img, kernel=(3, 3), iterations=10)
+            mask_img = Image_.dilate(mask_img, kernel=(5, 5), iterations=15)
 
             log_img_masked = Image_.applyMask(log_img, mask_img, set_val=np.nan)
             # log_img_masked = Image_.blur(log_img_masked, kernel=(3, 3), iterations=3)
             log_img_pts = Image_.ignoreNaNs(log_img_masked.reshape(-1, 3))
+            # log_img_pts = logproc.filterPointsbyNearestNeighbor(
+            #     log_img_pts, threshold=0.1, min_neighbors=5
+            # )
 
             rgb_img_masked = (Image_.applyMask(rgb_img, mask_img, set_val=0)).astype(
                 np.uint8
@@ -132,15 +138,16 @@ def main():
         ]
 
         #### PLANE FITTING
-        # sufficient_inliers = log_img_pts.shape[0]
+        # sufficient_inliers = 0
         # best_fit_plane, best_inliers_mask = logproc.fitPlane(
-        #     log_img_pts, sufficient_inliers, max_iterations=1000, threshold=0.01
+        #     log_img_pts, sufficient_inliers, max_iterations=5000, threshold=0.005
         # )
         # best_projection_plane = logproc.getNormaltoPlane(best_fit_plane)
         # best_projection_plane_normal = best_projection_plane[0:3]
+        # planes = [best_projection_plane, best_fit_plane]
 
         # tfmat = logproc.estimateTransformationMat(best_projection_plane_normal)
-        # projected_points_2d = logproc.transformPoints(log_img, tfmat)
+        # projected_points_2d = logproc.transformPoints(log_img_pts, tfmat)
 
         # intensity_projected_pts_2d = np.mean(projected_points_2d, axis=1)
 
@@ -163,7 +170,7 @@ def main():
 
         ### LINE FITTING
         # lit_shadow_pts, best_inliers_mask = logproc.fitLine(
-        #     log_img_pts, max_iterations=5000, threshold=0.01
+        #     log_img_pts, max_iterations=5000, threshold=0.1
         # )
 
         ISD_vec = lit_shadow_pts[0] - lit_shadow_pts[1]
@@ -215,7 +222,7 @@ def main():
                 save_name=f"{args.result}/histogram/{img_name}_log.html",
                 title="LOG PCL",
                 vector=[lit_shadow_pts],
-                # plane=[best_fit_plane, best_projection_plane],
+                plane=planes,
             )
             # logproc.generate3DHistogram(
             #     rgb_img.reshape(-1, 3),

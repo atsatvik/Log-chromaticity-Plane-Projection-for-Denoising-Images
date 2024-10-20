@@ -34,6 +34,13 @@ class Image:
     def saveImage(self, path, img):
         cv2.imwrite(path, img)
 
+    def convertlogtolinear(self, log_img):
+        log_img = log_img.astype(np.float32)
+        log_img = np.exp(log_img)
+        log_img = self.normalizeImage(log_img)
+        log_img = self.converttouint8(log_img)
+        return log_img
+
     def getCrop(self, rgbimg):
         def draw_rectangle(event, x, y, flags, param):
             global ix, iy, drawing, rect
@@ -68,24 +75,22 @@ class Image:
                 break
         return x1, y1, x2, y2
 
-    def getPoints(self, rgb_img, num_points=2):
+    def getPoints(self, rgb_img, num_points=2, title="img"):
         def select_points(event, x, y, flags, param):
             global points
             if event == cv2.EVENT_LBUTTONDOWN:
                 points.append((y, x))  # row, col
                 print(f"Point selected: {x}, {y}")
                 cv2.circle(rgb_img, (x, y), 3, (0, 255, 0), -1)
-                cv2.imshow("img", rgb_img)
+                cv2.imshow(title, rgb_img)
 
-        cv2.namedWindow("img")
-        cv2.setMouseCallback("img", select_points)
+        cv2.namedWindow(title)
+        cv2.setMouseCallback(title, select_points)
         while True:
-            cv2.imshow("img", rgb_img)
+            cv2.imshow(title, rgb_img)
             key = cv2.waitKey(0) & 0xFF
-            if key == ord("c") and len(points) == num_points:
+            if key and len(points) % 2 == 0:
                 cv2.destroyAllWindows()
-                break
-            if key == ord("q"):
                 break
         return points
 
@@ -115,3 +120,17 @@ class Image:
         for _ in range(iterations):
             img = cv2.blur(img, kernel, None)
         return img
+
+    def setconstantIntensity(self, image, intensity=150):
+        image = image.astype(np.float32)
+
+        current_intensity = np.sum(image, axis=2, keepdims=True)
+
+        with np.errstate(divide="ignore", invalid="ignore"):
+            scaling_factor = np.where(
+                current_intensity != 0, intensity / current_intensity, 0
+            )
+
+        new_image = image * scaling_factor
+        new_image = np.clip(new_image, 0, 255).astype(np.uint8)
+        return new_image

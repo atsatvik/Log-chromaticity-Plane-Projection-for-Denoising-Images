@@ -3,6 +3,8 @@ import numpy as np
 import os
 import plotly.graph_objects as go
 from tqdm import tqdm
+import matplotlib.pyplot as plt
+from scipy.spatial import KDTree
 
 
 class processLogImage:
@@ -13,7 +15,8 @@ class processLogImage:
         save_name="pcl.html",
         title="pcl",
         vector=None,
-        plane=None,
+        planes=None,
+        center_point=None,
     ):
         upper_lim = np.max(image)
         lower_lim = np.min(image)
@@ -69,11 +72,25 @@ class processLogImage:
                     )
                 )
 
-        if plane is not None:
-            for pl in plane:
+        if planes is not None:
+            range_size = 3
+            for pl in planes:
                 a, b, c, d = pl
-                xx, yy = np.meshgrid(np.linspace(0, 3, 10), np.linspace(0, 3, 10))
+
+                if center_point is not None:
+                    x0, y0, z0 = center_point
+                else:
+                    x0, y0, z0 = 0, 0, 0  # Default center point
+
+                # Create a meshgrid centered around the point (x0, y0)
+                half_range = range_size / 2
+                xx, yy = np.meshgrid(
+                    np.linspace(x0 - half_range, x0 + half_range, 10),
+                    np.linspace(y0 - half_range, y0 + half_range, 10),
+                )
+
                 zz = (-a * xx - b * yy - d) / c
+
                 fig.add_trace(
                     go.Surface(
                         x=xx,
@@ -96,6 +113,142 @@ class processLogImage:
 
         fig.write_html(save_name)
         print(f"PCL saved at {save_name}")
+
+    # def plot2Dpts(self, points):
+
+    #     points_array = np.array(points)
+
+    #     tree = KDTree(points_array)
+    #     merged_points = []
+    #     visited = set()  # To keep track of visited points
+    #     threshold = 0.1
+    #     for i, point in enumerate(points_array):
+    #         if i in visited:
+    #             continue
+
+    #         # Find indices of points within the threshold distance
+    #         indices = tree.query_ball_point(point, threshold)
+
+    #         # Merge points by taking their mean
+    #         close_points = points_array[indices]
+    #         merged_point = close_points.mean(axis=0)
+
+    #         merged_points.append(merged_point)
+
+    #         # Mark all close points as visited
+    #         visited.update(indices)
+
+    #     merged_points = np.array(merged_points)
+    #     x, y = merged_points[:, 0], merged_points[:, 1]
+
+    #     x = (x - np.min(x)) / (np.max(x) - np.min(x))
+    #     y = (y - np.min(y)) / (np.max(y) - np.min(y))
+
+    #     # Create a scatter plot
+    #     plt.scatter(x, y, color="blue", marker="o")
+    #     plt.title("Scatter Plot of 2D Points")
+    #     plt.xlabel("X-axis")
+    #     plt.ylabel("Y-axis")
+    #     plt.grid()
+    #     plt.show()
+    #     # return np.array(merged_points)
+
+    def plot2Dpts(self, points, threshold=0.05, show_plot=False):
+        points_array = np.array(points)
+
+        tree = KDTree(points_array)
+        merged_points = []
+        updated_points_array = np.zeros_like(
+            points_array
+        )  # Array to store updated points
+        visited = set()  # To keep track of visited points
+
+        for i, point in enumerate(points_array):
+            if i in visited:
+                continue
+
+            # Find indices of points within the threshold distance
+            indices = tree.query_ball_point(point, threshold)
+
+            # Merge points by taking their mean
+            close_points = points_array[indices]
+            merged_point = close_points.mean(axis=0)
+
+            merged_points.append(merged_point)
+
+            # Set the same merged point for all close points in the updated array
+            for idx in indices:
+                updated_points_array[idx] = merged_point
+
+            # Mark all close points as visited
+            visited.update(indices)
+
+        merged_points = np.array(merged_points)
+
+        # Normalize the original points for plotting
+        x, y = points_array[:, 0], points_array[:, 1]
+        x = (x - np.min(x)) / (np.max(x) - np.min(x))
+        y = (y - np.min(y)) / (np.max(y) - np.min(y))
+
+        # Normalize the updated points for plotting
+        updated_x, updated_y = updated_points_array[:, 0], updated_points_array[:, 1]
+        updated_x = (updated_x - np.min(updated_x)) / (
+            np.max(updated_x) - np.min(updated_x)
+        )
+        updated_y = (updated_y - np.min(updated_y)) / (
+            np.max(updated_y) - np.min(updated_y)
+        )
+
+        if show_plot:
+            # Plot original and updated points side by side
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+
+            # Plot the original points
+            ax1.scatter(x, y, color="blue", marker="o")
+            ax1.set_title("Original Points")
+            ax1.set_xlabel("X-axis")
+            ax1.set_ylabel("Y-axis")
+            ax1.grid()
+
+            # Plot the updated (merged) points
+            ax2.scatter(updated_x, updated_y, color="green", marker="o")
+            ax2.set_title("Updated Points (After Merging)")
+            ax2.set_xlabel("X-axis")
+            ax2.set_ylabel("Y-axis")
+            ax2.grid()
+
+            plt.show()
+        return updated_points_array
+
+    def update_far_pixels(self, points, threshold_distance=0.1):
+        H, W, _ = points.shape
+        updated_points = points.copy()
+
+        # Pad the array to handle edge cases (reflect padding)
+        padded_points = np.pad(points, ((1, 1), (1, 1), (0, 0)), mode="reflect")
+
+        for i in range(1, H + 1):
+            for j in range(1, W + 1):
+                # Extract the 3x3 region around the pixel
+                region = padded_points[i - 1 : i + 2, j - 1 : j + 2, :]
+                middle_pixel = padded_points[i, j, :]
+
+                # Calculate the Euclidean distance between the middle pixel and other pixels in the region
+                distances = np.linalg.norm(region - middle_pixel, axis=2)
+
+                # Check how many pixels are close (within threshold distance)
+                close_pixels_mask = distances <= threshold_distance
+                close_pixels_count = (
+                    np.sum(close_pixels_mask) - 1
+                )  # Exclude middle pixel itself
+
+                # If more than half of the pixels are far, replace the middle pixel with the average of close pixels
+                if close_pixels_count <= 4:  # Half of the 8 neighboring pixels
+                    close_pixels = region[close_pixels_mask]
+                    if len(close_pixels) > 0:
+                        updated_points[i - 1, j - 1, :] = np.mean(close_pixels, axis=0)
+
+        return updated_points
 
     def estimateTransformationMat(self, normal_vector):
         print("Vector from Shadow to Lit:", normal_vector)
@@ -123,9 +276,7 @@ class processLogImage:
         return transformation_matrix
 
     def transformPoints(self, image, tf_mat):
-        height, width, _ = image.shape
         image = image.reshape(-1, 3)
-
         projected_points = np.dot(image, tf_mat.T)
         return projected_points
 
@@ -209,50 +360,116 @@ class processLogImage:
 
         return np.array([local_2D_x, local_2D_y])
 
-    def reprojectXYtoRGB(self, pts_2d, constant_intensity=150):
+    def reprojectXYtoRGB(self, pts_2d, constant_intensity=255):
+        rgb_values = []
+
+        x_vals, y_vals = pts_2d[:, 0], pts_2d[:, 1]
+
+        R = ((x_vals - np.min(x_vals)) / (np.max(x_vals) - np.min(x_vals))) * 255
+        G = ((y_vals - np.min(y_vals)) / (np.max(y_vals) - np.min(y_vals))) * 255
+
+        # B = (R + G) / 2 - constant_intensity
+        B = np.ones_like(R) * constant_intensity
+
+        rgb = np.stack([R, G, B], axis=1)
+        return rgb
+
+    def reprojectXYtoOriginalColor(
+        self,
+        pts_2d,
+        pts_3d,
+        mask_pts,
+        point_color_dict,
+        minimum_same_mapped=100,
+        intensity=None,
+    ):
         rgb_values = []
         x_vals, y_vals = pts_2d[:, 0], pts_2d[:, 1]
-        for x, y in zip(x_vals, y_vals):
-            x_normalized = (
-                (x - np.min(x_vals)) / (np.max(x_vals) - np.min(x_vals)) * 255
-            )
-            y_normalized = (
-                (y - np.min(y_vals)) / (np.max(y_vals) - np.min(y_vals)) * 255
-            )
 
-            R = x_normalized
-            G = y_normalized
-
-            # Ensure that R + G + B = constant_intensity
-            B = constant_intensity - (R + G)
-
-            # Clip RGB values to the range [0, constant_intensity] to avoid negatives
-            R = np.clip(R, 0, constant_intensity)
-            G = np.clip(G, 0, constant_intensity)
-            B = np.clip(B, 0, constant_intensity)
-
-            rgb_values.append([R, G, B])
-
-        return np.array(rgb_values)
-
-    def reprojectXYtoOriginalColor(self, pts_2d, point_color_dict, intensity=None):
-        rgb_values = []
-        x_vals, y_vals = pts_2d[:, 0], pts_2d[:, 1]
         min_x, min_y = np.min(x_vals), np.min(y_vals)
         max_x, max_y = np.max(x_vals), np.max(y_vals)
 
-        for x, y in tqdm(zip(x_vals, y_vals), desc="Reprojecting plane points to RGB"):
+        # x_vals = ((x_vals - min_x) / (max_x - min_x)).astype(int) * 255
+        # y_vals = ((y_vals - min_y) / (max_y - min_y)).astype(int) * 255
+
+        for i, (x, y) in tqdm(
+            enumerate(zip(x_vals, y_vals)), desc="Reprojecting plane points to RGB"
+        ):
+            if mask_pts is not None and not mask_pts[i]:
+                rgb_values.append(pts_3d[i, :])
+                continue
+
             x = int(((x - min_x) / (max_x - min_x)) * 255)
             y = int(((y - min_y) / (max_y - min_y)) * 255)
 
             pt = tuple((x, y))
 
-            rgb_arr = np.array(list(point_color_dict[pt]))
+            # rgb_arr = np.array(list(point_color_dict[pt][0][1]))
+            # rgb_intensity = np.sum(rgb_arr, axis=1)
+            # sorted_indices = np.argsort(rgb_intensity)
+
+            # max_idx = sorted_indices[-1]
+            # R, G, B = rgb_arr[max_idx, :]
+            R, G, B = point_color_dict[pt][0][1]
+
+            # R_orig, G_orig, B_orig = pts_3d[i, :]
+            # freq = point_color_dict[pt][1]
+            # if freq < minimum_same_mapped:
+            #     R, G, B = R_orig, G_orig, B_orig
+
+            rgb_values.append([R, G, B])
+
+        rgb_values = np.array(rgb_values)
+
+        if intensity is not None:
+            intensity_rgb_values = np.mean(rgb_values, axis=1)
+
+            scale_factor_rgb_values = np.divide(
+                intensity, intensity_rgb_values, where=intensity_rgb_values != 0
+            )
+            rgb_values = rgb_values * scale_factor_rgb_values[:, np.newaxis]
+            rgb_values = rgb_values.astype(np.uint8)
+        return rgb_values
+
+    def temp_hehe(
+        self,
+        pts_3d,
+        color_pts_3d,
+        point_color_dict,
+        mask_pts=None,
+        minimum_same_mapped=100,
+        intensity=None,
+    ):
+        rgb_values = []
+        x_vals, y_vals, z_vals = pts_3d[:, 0], pts_3d[:, 1], pts_3d[:, 2]
+        min_x, min_y, min_z = np.min(x_vals), np.min(y_vals), np.min(z_vals)
+        max_x, max_y, max_z = np.max(x_vals), np.max(y_vals), np.max(z_vals)
+
+        for i, (x, y, z) in tqdm(
+            enumerate(zip(x_vals, y_vals, z_vals)),
+            desc="Reprojecting plane points to RGB",
+        ):
+            if mask_pts is not None and not mask_pts[i]:
+                rgb_values.append(color_pts_3d[i, :])
+                continue
+
+            x = int(((x - min_x) / (max_x - min_x)) * 255)
+            y = int(((y - min_y) / (max_y - min_y)) * 255)
+            z = int(((z - min_z) / (max_z - min_z)) * 255)
+
+            pt = tuple((x, y, z))
+
+            rgb_arr = np.array(list(point_color_dict[pt][0]))
             rgb_intensity = np.sum(rgb_arr, axis=1)
             sorted_indices = np.argsort(rgb_intensity)
 
             max_idx = sorted_indices[-1]
             R, G, B = rgb_arr[max_idx, :]
+
+            R_orig, G_orig, B_orig = color_pts_3d[i, :]
+            freq = point_color_dict[pt][1]
+            if freq < minimum_same_mapped:
+                R, G, B = R_orig, G_orig, B_orig
 
             rgb_values.append([R, G, B])
 
@@ -372,8 +589,8 @@ class processLogImage:
         intensity_points = np.mean(points, axis=1)
         intensity_points_argsorted = np.argsort(intensity_points)
 
-        dim_pts = intensity_points_argsorted[0 : int(len(intensity_points) * 0.05)]
-        bright_pts = intensity_points_argsorted[
+        bright_pts = intensity_points_argsorted[0 : int(len(intensity_points) * 0.05)]
+        dim_pts = intensity_points_argsorted[
             int(len(intensity_points) * 0.95) : len(intensity_points)
         ]
 
@@ -411,3 +628,261 @@ class processLogImage:
                 best_inliers_mask = inliers_mask
 
         return [p0, p0 + 10 * direction_vector], best_inliers_mask
+
+    def getPlane(self, normal_vector, point_on_plane):
+        a, b, c = normal_vector
+
+        # Point on the plane (x0, y0, z0)
+        x0, y0, z0 = point_on_plane
+
+        # Calculate d using the point on the plane
+        d = -(a * x0 + b * y0 + c * z0)
+
+        # Return the plane equation coefficients (a, b, c, d)
+        return a, b, c, d
+
+    def get3DpointsOnPlane(self, points, a, b, c, d):
+        normal_length_squared = a**2 + b**2 + c**2
+
+        # Convert points to a NumPy array for vectorized operations
+        points = np.array(points)
+
+        # Separate the coordinates
+        x1, y1, z1 = points[:, 0], points[:, 1], points[:, 2]
+
+        # Calculate the distance from the plane for each point (with custom d)
+        distances = (a * x1 + b * y1 + c * z1 + d) / normal_length_squared
+
+        # Calculate the projected points
+        x_proj = x1 - distances * a
+        y_proj = y1 - distances * b
+        z_proj = z1 - distances * c
+
+        # Combine projected coordinates back into a single array
+        projected_points = np.vstack((x_proj, y_proj, z_proj)).T
+
+        return projected_points
+
+    def reconstruct_from_gradients(self, grad_x, grad_y, processed_channel):
+        """
+        Reconstruct the image from gradients using integration.
+
+        :param grad_x: Horizontal gradients.
+        :param grad_y: Vertical gradients.
+        :param processed_channel: Original processed channel to preserve intensity.
+
+        :return: Reconstructed image with modified gradients.
+        """
+        # Initialize result with the processed image channel
+        result = processed_channel.copy()
+
+        # Integrate gradients (basic approach to integrate gradient fields)
+        for i in range(1, grad_x.shape[0]):
+            result[i, :] = result[i - 1, :] + grad_y[i, :]
+
+        for j in range(1, grad_x.shape[1]):
+            result[:, j] = result[:, j - 1] + grad_x[:, j]
+
+        return result
+
+    def removespots(
+        self,
+        image,
+        mask_img,
+        kernel_size=(3, 3),
+        iterations=5,
+        threshold_ratio=0.5,
+        threshold_for_intensity_diff=1.25,
+    ):
+        image = image.astype(np.float32)
+
+        padded_image = np.pad(image, ((1, 1), (1, 1), (0, 0)), mode="reflect")
+        if mask_img is not None:
+            mask_img = np.pad(mask_img, ((1, 1), (1, 1)), mode="reflect")
+
+        height, width, _ = image.shape
+
+        for _ in tqdm(range(iterations), desc="Removing inconsistent spots"):
+            output_image = np.zeros_like(image, dtype=np.float32)
+
+            intensity = np.mean(padded_image, axis=2)
+            for i in range(1, height + 1):  # Adjust for padding
+                for j in range(1, width + 1):
+                    if mask_img is not None and not mask_img[i, j]:
+                        output_image[i - 1, j - 1, :] = padded_image[i, j, :]
+                        continue
+                    # Extract the 3x3 region around the pixel
+                    region = padded_image[i - 1 : i + 2, j - 1 : j + 2, :]
+                    region_intensity = intensity[i - 1 : i + 2, j - 1 : j + 2]
+
+                    current_intensity = intensity[i, j]
+
+                    higher_intensity_count = np.sum(
+                        region_intensity
+                        > threshold_for_intensity_diff * current_intensity
+                    )
+
+                    higher_values = region_intensity[
+                        region_intensity
+                        > threshold_for_intensity_diff * current_intensity
+                    ]
+
+                    if higher_intensity_count >= threshold_ratio * (
+                        kernel_size[0] * kernel_size[1] - 1
+                    ):
+                        # max_intensity_idx = np.unravel_index(
+                        #     np.argmax(region_intensity), region_intensity.shape
+                        # )
+                        # output_image[i - 1, j - 1, :] = region[
+                        #     max_intensity_idx[0], max_intensity_idx[1], :
+                        # ]
+
+                        average_value = np.mean(higher_values)
+                        output_image[i - 1, j - 1, :] = average_value
+                    # elif current_intensity == np.max(region_intensity):
+                    #     # Set all surrounding pixels to the value of the middle pixel
+                    #     output_image[i - 1 : i + 2, j - 1 : j + 2, :] = padded_image[
+                    #         i, j, :
+                    #     ]
+                    else:
+                        output_image[i - 1, j - 1, :] = padded_image[i, j, :]
+
+            padded_image[1:-1, 1:-1, :] = output_image
+        output_image = np.clip(output_image, 0, 255).astype(np.uint8)
+
+        return output_image
+
+    #################################################################3
+    #################################################################3
+    #################################################################3
+    #################################################################3
+
+    # def normalize_kernel(kernel):
+    #     total = np.sum(kernel)
+    #     if total == 0:
+    #         return kernel
+    #     return kernel / total
+
+    # def adjust_processed_kernel(original_kernel, processed_kernel):
+    #     # Normalize both kernels
+    #     norm_original = normalize_kernel(original_kernel)
+    #     norm_processed = normalize_kernel(processed_kernel)
+
+    #     # Calculate the ratio between the processed and original kernels
+    #     ratio = np.divide(
+    #         norm_processed,
+    #         norm_original,
+    #         out=np.ones_like(norm_processed),
+    #         where=norm_original != 0,
+    #     )
+
+    #     # If all values are close to 1, intensity is consistent
+    #     if np.allclose(ratio, 1, atol=0.10):  # Tolerance set to 10%
+    #         return processed_kernel
+    #     else:
+    #         adjustment = 1 / ratio
+    #         adjusted_kernel = processed_kernel * adjustment
+    #         print(f"Adjustment factor:\n{adjustment}")
+    #         return adjusted_kernel
+
+    def normalize_kernel(self, kernel):
+        total = np.sum(kernel)
+        if total == 0:
+            return kernel
+        return kernel / total
+
+    def adjust_processed_kernel(self, original_kernel, processed_kernel):
+        # Normalize both kernels
+        norm_original = self.normalize_kernel(original_kernel)
+        norm_processed = self.normalize_kernel(processed_kernel)
+
+        # Calculate the ratio between the processed and original kernels
+        ratio = np.divide(
+            norm_processed,
+            norm_original,
+            out=np.ones_like(norm_processed),
+            where=norm_original != 0,
+        )
+
+        return ratio
+
+    def calculate_ratio_value_map(self, original_image, processed_image, kernel_size=3):
+
+        original_image = np.mean(original_image, axis=2)
+        processed_image = np.mean(processed_image, axis=2)
+
+        # Initialize the ratio value map with -1
+        ratio_value_map = np.full(original_image.shape, -1.0)
+
+        pad_size = kernel_size // 2
+
+        # Pad the images to handle borders
+        padded_original = np.pad(original_image, pad_size, mode="edge")
+        padded_processed = np.pad(processed_image, pad_size, mode="edge")
+
+        # Iterate over each pixel in the original image
+        for i in range(original_image.shape[0]):
+            for j in range(original_image.shape[1]):
+                # Extract the 3x3 kernels
+                original_kernel = padded_original[
+                    i : i + kernel_size, j : j + kernel_size
+                ]
+                processed_kernel = padded_processed[
+                    i : i + kernel_size, j : j + kernel_size
+                ]
+
+                # Calculate the ratio for the current kernel
+                ratio = self.adjust_processed_kernel(original_kernel, processed_kernel)
+
+                # # Update the ratio value map
+                # if ratio_value_map[i, j] == -1:  # If uninitialized
+                #     ratio_value_map[i, j] = ratio.mean()  # Initialize with mean
+                # else:
+                #     ratio_value_map[i, j] = (
+                #         ratio_value_map[i, j] + ratio.mean()
+                #     ) / 2  # Average with mean
+
+                # Calculate the average with the existing value in the ratio value map
+                for k in range(kernel_size):
+                    for l in range(kernel_size):
+                        ratio_value = ratio[k, l]
+                        if ratio_value_map[i, j] == -1:  # If uninitialized
+                            ratio_value_map[i, j] = ratio_value
+                        else:
+                            # Average the new ratio value with the old one
+                            ratio_value_map[i, j] = (
+                                ratio_value_map[i, j] + ratio_value
+                            ) / 2
+
+        return ratio_value_map
+
+
+##################################################
+# import numpy as np
+
+# a = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+# b = np.array([[2, 4, 6], [8, 10, 12], [1, 3, 7]])
+# print("orig_a", a, "\n")
+# print("orig_b", b, "\n")
+
+# a_norm = a / np.sum(a)
+# b_norm = b / np.sum(b)
+
+# ratio = b_norm / a_norm
+
+# print("a_norm", a_norm, "\n")
+# print("b_norm", b_norm, "\n")
+# print("ratio", ratio, "\n")
+
+# adjustment = 1 / ratio
+# print(adjustment)
+# b = b * adjustment
+
+
+# print("orig a", a, "\n")
+# print("adjusted_b", b, "\n")
+
+
+# print(a / np.sum(a))
+# print(b / np.sum(b))
+##################################################3
