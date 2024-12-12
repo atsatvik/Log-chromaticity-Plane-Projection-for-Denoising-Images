@@ -15,7 +15,7 @@ from scipy.spatial import KDTree
 import scipy.stats
 import cv2
 
-from PCLdebugutils.helper import *
+from reprojutils.helper import *
 from utils.logchromaticity import processLogImage
 
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
@@ -34,6 +34,18 @@ def parse_args():
         default=None,
         type=str,
         help="Use spectral ratio network ISDs",
+    )
+    parser.add_argument(
+        "--saveimg",
+        default=None,
+        type=str,
+        help="Save comparison image",
+    )
+    parser.add_argument(
+        "--results",
+        default="results_colorreproj",
+        type=str,
+        help="Save pth for comparison image",
     )
 
     args = parser.parse_args()
@@ -107,13 +119,17 @@ if __name__ == "__main__":
         color_img = getRefinedColorImg(log_chroma, intensity_map, clahe=False)
 
         # for visualizing the log img, log chromaticity map, intensity map and reprojected image side by side
-        # intensity_map = cv2.cvtColor(intensity_map, cv2.COLOR_GRAY2BGR)
-        # combined = np.hstack(
-        #     [log_img.astype(np.uint8), log_chroma, intensity_map, color_img]
-        # )
-        # cv2.imshow("combined", combined)
-        # cv2.waitKey(1000)
-        # cv2.destroyAllWindows()
+        if args.saveimg:
+            intensity_map = cv2.cvtColor(intensity_map, cv2.COLOR_GRAY2BGR)
+            if not os.path.exists(args.results):
+                os.makedirs(args.results)
+
+            combined = np.hstack(
+                [log_img.astype(np.uint8), log_chroma, intensity_map, color_img]
+            )
+            cv2.imwrite(
+                os.path.join(args.results, f"{imname}_comparison.png"), combined
+            )
 
         log_img, log_chroma, rgb_img = resize_imgs(
             [log_img, log_chroma, rgb_img], size=(100, 100)
@@ -123,7 +139,7 @@ if __name__ == "__main__":
             log_img.reshape(-1, 3),
             log_chroma_init.reshape(-1, 3),
             color_image=rgb_img,
-            save_name=f"pcl.html",
+            save_name=os.path.join(args.results, f"{imname}_pcl.html"),
             title="PCL",
             vector=lit_shadow_ls,
             planes=planes_ls,

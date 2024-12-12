@@ -100,7 +100,13 @@ def main():
             gray_img = logproc.estimateGrayscaleImagefromXY(
                 projected_points_2d, log_img.shape
             )
+            gray_img = cv2.cvtColor(gray_img, cv2.COLOR_GRAY2BGR)
+
             Image_.showImage(gray_img)
+            gray_rgb_img = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2GRAY)
+            gray_rgb_img = cv2.cvtColor(gray_rgb_img, cv2.COLOR_GRAY2BGR)
+            compare = np.hstack([rgb_img, gray_rgb_img, gray_img])
+
             print("Save ISD for this image?")
             print("1: Yes")
             print("2: No")
@@ -118,7 +124,7 @@ def main():
                 break
             elif choice == "4":
                 exit()
-        Image_.saveImage(os.path.join(args.result, f"{img_name}_gray.png"), gray_img)
+        Image_.saveImage(os.path.join(args.result, f"{img_name}_compare.png"), compare)
         continue
 
 
